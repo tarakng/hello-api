@@ -3,6 +3,7 @@ name: Build and Publish hello-api
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
