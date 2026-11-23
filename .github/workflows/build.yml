@@ -1,5 +1,4 @@
-
-name: Build and Publish Node API
+name: Build and Publish hello-api
 
 on:
   push:
@@ -19,7 +18,7 @@ jobs:
 
     steps:
       # 1. Checkout application source
-      - name: Checkout source
+      - name: Checkout hello-api source
         uses: actions/checkout@v4
 
       # 2. Setup Node.js
@@ -30,7 +29,7 @@ jobs:
           cache: npm
 
       # 3. Test
-      - name: Install and test
+      - name: Install and test hello-api
         run: |
           npm ci
           npm test
@@ -55,7 +54,7 @@ jobs:
             us-central1-docker.pkg.dev --quiet
 
       # 7. Build and push immutable image
-      - name: Build and push
+      - name: Build and push hello-api
         env:
           PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
           IMAGE_TAG: ${{ github.sha }}
@@ -65,18 +64,18 @@ jobs:
           docker build -t "$IMAGE" .
           docker push "$IMAGE"
 
-      # 8. Checkout GitOps repository
-      - name: Checkout GitOps config
+      # 8. Checkout hello-api-gitops repository
+      - name: Checkout hello-api-gitops config
         uses: actions/checkout@v4
         with:
-          repository: ${{ github.repository_owner }}/hello-gitops
+          repository: tarakng/hello-api-gitops
           token: ${{ secrets.GITOPS_TOKEN }}
           ref: main
           path: gitops
           persist-credentials: true
 
       # 9. Update deployment image tag
-      - name: Update GitOps manifest
+      - name: Update hello-api GitOps manifest
         env:
           PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
           IMAGE_TAG: ${{ github.sha }}
