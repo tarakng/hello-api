@@ -1,0 +1,102 @@
+
+name: Build and Publish Node API
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: hello-api-main
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout application source
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # 2. Setup Node.js
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      # 3. Test
+      - name: Install and test
+        run: |
+          npm ci
+          npm test
+
+      # 4. Authenticate to Google Cloud using OIDC
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          token_format: access_token
+
+      # 5. Install Google Cloud CLI
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      # 6. Authenticate Docker with Artifact Registry
+      - name: Configure Docker
+        run: |
+          gcloud auth configure-docker \
+            us-central1-docker.pkg.dev --quiet
+
+      # 7. Build and push immutable image
+      - name: Build and push
+        env:
+          PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          IMAGE="us-central1-docker.pkg.dev/${PROJECT_ID}/hello-repo/hello-api:${IMAGE_TAG}"
+
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+
+      # 8. Checkout GitOps repository
+      - name: Checkout GitOps config
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/hello-gitops
+          token: ${{ secrets.GITOPS_TOKEN }}
+          ref: main
+          path: gitops
+          persist-credentials: true
+
+      # 9. Update deployment image tag
+      - name: Update GitOps manifest
+        env:
+          PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          cd gitops
+
+          IMAGE="us-central1-docker.pkg.dev/${PROJECT_ID}/hello-repo/hello-api:${IMAGE_TAG}"
+
+          sed -i \
+            "s|image: .*hello-api:.*|image: ${IMAGE}|" \
+            apps/hello-api/deployment.yaml
+
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add apps/hello-api/deployment.yaml
+
+          if ! git diff --cached --quiet; then
+            git commit -m "Deploy hello-api ${IMAGE_TAG}"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
